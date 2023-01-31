@@ -24,11 +24,20 @@ RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Install requirements
-
 ADD requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
+# # Install packages
+RUN apt-get update
+RUN apt-get install -y tmux
+
 # Add model files to workspace
-ADD . /workspace
+RUN mkdir /workspace/legacy
+ADD . /workspace/legacy/
 
+RUN mkdir /workspace/caiis
+VOLUME /workspace/caiis/TFT
+VOLUME /workspace/caiis/notebook
+VOLUME /workspace/caiis/data
 
+WORKDIR /workspace/caiis
