@@ -11,9 +11,128 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from dataclasses import field
+from typing import List
+from typing import Optional
+from typing import Tuple
+
+from dataclasses import dataclass
 
 from data_utils import InputTypes, DataTypes, FeatureSpec
-import datetime
+
+
+@dataclass
+class ConfigBase:
+
+    features: List[FeatureSpec]
+    time_ids: str
+    dataset_stride: int
+    example_length: int
+
+    scale_per_id: bool
+    missing_cat_data_strategy: str
+
+    # Feature sizes
+    static_categorical_inp_lens: List[int]
+
+    example_length: int
+    encoder_length: int
+
+    n_head: int
+    hidden_size: int
+    dropout: float
+    attn_dropout: float
+
+    relative_split: bool = False
+
+    # For doing the train-validation-test split, if relative_split
+    # is not set, data_utils chooses the splits based on the ranges
+    # defined below over the value of time_ids
+    train_range: Optional[Tuple[int, int]] = None
+    valid_range: Optional[Tuple[int, int]] = None
+    test_range: Optional[Tuple[int, int]] = None
+
+    quantiles: List[float] = field(default=(0.1, 0.5, 0.9))
+    missing_id_strategy: Optional[str] = field(default=None)
+    temporal_known_categorical_inp_lens: List[int] = field(default_factory=list)
+    temporal_observed_categorical_inp_lens: List[int] = field(default_factory=list)
+
+    @property
+    def temporal_known_continuous_inp_size(self):
+        return len([x for x in self.features if x.feature_type == InputTypes.KNOWN and x.feature_embed_type == DataTypes.CONTINUOUS])
+
+    @property
+    def temporal_observed_continuous_inp_size(self):
+        return len([x for x in self.features if x.feature_type == InputTypes.OBSERVED and x.feature_embed_type == DataTypes.CONTINUOUS])
+
+    @property
+    def temporal_target_size(self):
+        return len([x for x in self.features if x.feature_type == InputTypes.TARGET])
+
+    @property
+    def static_continuous_inp_size(self):
+        return len([x for x in self.features if x.feature_type == InputTypes.STATIC and x.feature_embed_type == DataTypes.CONTINUOUS])
+
+    @property
+    def num_static_vars(self):
+        return self.static_continuous_inp_size + len(self.static_categorical_inp_lens)
+
+    @property
+    def num_future_vars(self):
+        return self.temporal_known_continuous_inp_size + len(self.temporal_known_categorical_inp_lens)
+
+    @property
+    def num_historic_vars(self):
+        return sum([self.num_future_vars,
+                    self.temporal_observed_continuous_inp_size,
+                    self.temporal_target_size,
+                    len(self.temporal_observed_categorical_inp_lens),
+                    ])
+
+
+def M4DailyConfig():
+
+    num_sequneces = 4227
+    splits = (8948673, 9964658, 10023836)
+
+    # aka forecast_len in data_utils.py and "Past Inputs" in the paper,
+    # how many time steps being considered
+    # num_past_inputs = 14
+
+    features = [
+        FeatureSpec("id", InputTypes.ID, DataTypes.CATEGORICAL),
+        FeatureSpec("time_step", InputTypes.TIME, DataTypes.CONTINUOUS),
+        FeatureSpec("year", InputTypes.KNOWN, DataTypes.CONTINUOUS),
+        FeatureSpec("month", InputTypes.KNOWN, DataTypes.CATEGORICAL),
+        FeatureSpec("day_of_year", InputTypes.KNOWN, DataTypes.CONTINUOUS),
+        FeatureSpec("day_of_month", InputTypes.KNOWN, DataTypes.CONTINUOUS),
+        FeatureSpec("day_of_week", InputTypes.KNOWN, DataTypes.CATEGORICAL),
+        FeatureSpec("target", InputTypes.TARGET, DataTypes.CONTINUOUS),
+        # repeating ID in static inputs just in case
+        FeatureSpec("categorical_id", InputTypes.STATIC, DataTypes.CATEGORICAL),
+    ]
+
+    return ConfigBase(
+        features=features,
+        time_ids='time_step',
+        # train_range=(0, splits[0]),
+        # valid_range=(splits[0], splits[1]),
+        # test_range=(splits[1], splits[2]),
+        relative_split=True,
+        dataset_stride=1,
+        scale_per_id=True,
+        missing_cat_data_strategy='encode_all',
+        static_categorical_inp_lens=[num_sequneces],
+        temporal_known_categorical_inp_lens=[12, 7],
+        temporal_observed_categorical_inp_lens=[],
+        example_length=14, #(len(features) + 1) * num_past_inputs,
+        encoder_length=13, # len(features) * num_past_inputs,
+        n_head=4,
+        hidden_size=128,
+        dropout=0.1,
+        attn_dropout=0.0
+    )
+
 
 class ElectricityConfig():
     def __init__(self):
@@ -123,6 +242,8 @@ class TrafficConfig():
                                       ])
 
 
-CONFIGS = {'electricity':  ElectricityConfig,
-           'traffic':      TrafficConfig, 
-           }
+CONFIGS = {
+    'electricity': ElectricityConfig,
+    'traffic': TrafficConfig,
+    'm4daily': M4DailyConfig,
+}
