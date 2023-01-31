@@ -61,22 +61,22 @@ class InputTypes(enum.IntEnum):
 
 FeatureSpec = namedtuple('FeatureSpec', ['name', 'feature_type', 'feature_embed_type'])
 DTYPE_MAP = {
-        DataTypes.CONTINUOUS : np.float32,
-        DataTypes.CATEGORICAL : np.int64,
-        DataTypes.DATE:'datetime64[ns]',
-        DataTypes.STR: str
-        }
+    DataTypes.CONTINUOUS : np.float32,
+    DataTypes.CATEGORICAL : np.int64,
+    DataTypes.DATE:'datetime64[ns]',
+    DataTypes.STR: str
+}
 
 FEAT_ORDER = [
-        (InputTypes.STATIC, DataTypes.CATEGORICAL),
-        (InputTypes.STATIC, DataTypes.CONTINUOUS),
-        (InputTypes.KNOWN, DataTypes.CATEGORICAL),
-        (InputTypes.KNOWN, DataTypes.CONTINUOUS),
-        (InputTypes.OBSERVED, DataTypes.CATEGORICAL),
-        (InputTypes.OBSERVED, DataTypes.CONTINUOUS),
-        (InputTypes.TARGET, DataTypes.CONTINUOUS),
-        (InputTypes.ID, DataTypes.CATEGORICAL)
-        ]
+    (InputTypes.STATIC, DataTypes.CATEGORICAL),
+    (InputTypes.STATIC, DataTypes.CONTINUOUS),
+    (InputTypes.KNOWN, DataTypes.CATEGORICAL),
+    (InputTypes.KNOWN, DataTypes.CONTINUOUS),
+    (InputTypes.OBSERVED, DataTypes.CATEGORICAL),
+    (InputTypes.OBSERVED, DataTypes.CONTINUOUS),
+    (InputTypes.TARGET, DataTypes.CONTINUOUS),
+    (InputTypes.ID, DataTypes.CATEGORICAL)
+]
 
 FEAT_NAMES = ['s_cat' , 's_cont' , 'k_cat' , 'k_cont' , 'o_cat' , 'o_cont' , 'target', 'id']
 DEFAULT_ID_COL = 'id'
@@ -98,12 +98,12 @@ class TFTBinaryDataset(Dataset):
         # The list comprehension below is an elaborate way of rearranging data into correct order,
         # simultaneously doing casting to proper types. Probably can be written neater
         self.grouped = [
-                [
-                    arr[:, idxs].view(dtype=np.float32).astype(DTYPE_MAP[t[1]]) 
-                    for t, idxs in zip(FEAT_ORDER, self.feature_type_col_map)
-                ] 
-                for arr in self.grouped
+            [
+                arr[:, idxs].view(dtype=np.float32).astype(DTYPE_MAP[t[1]])
+                for t, idxs in zip(FEAT_ORDER, self.feature_type_col_map)
             ]
+            for arr in self.grouped
+        ]
 
     def __len__(self):
         return self._cum_examples_in_group[-1] if len(self._cum_examples_in_group) else 0
@@ -115,10 +115,10 @@ class TFTBinaryDataset(Dataset):
         group =  self.grouped[g_idx]
 
         tensors = [
-                   torch.from_numpy(feat[e_idx * self.stride:e_idx*self.stride + self.example_length])
-                   if feat.size else torch.empty(0)
-                   for feat in group
-                  ]
+            torch.from_numpy(feat[e_idx * self.stride:e_idx*self.stride + self.example_length])
+            if feat.size else torch.empty(0)
+            for feat in group
+        ]
 
         return OrderedDict(zip(FEAT_NAMES, tensors))
 
@@ -184,8 +184,9 @@ class TFTDataset(Dataset):
         tensors = [torch.stack(x, dim=-1) if x else torch.empty(0) for x in tensors]
 
         return OrderedDict(zip(FEAT_NAMES, tensors))
-        
-def get_dataset_splits(df, config):
+
+
+def get_dataset_splits(df: pd.DataFrame, config):
 
     if hasattr(config, 'relative_split') and config.relative_split:
         forecast_len = config.example_length - config.encoder_length
@@ -195,11 +196,22 @@ def get_dataset_splits(df, config):
         valid = []
         test = []
 
-        for _, group in df.groupby(DEFAULT_ID_COL):
-            index = group[config.time_ids]
-            _train = group.loc[index < config.valid_boundary]
-            _valid = group.iloc[(len(_train) - config.encoder_length):(len(_train) + forecast_len)]
-            _test = group.iloc[(len(_train) - config.encoder_length + forecast_len):(len(_train) + 2*forecast_len)]
+        id_column = next(feat for feat in config.features if feat.feature_type == InputTypes.ID).name
+
+        for _, group in df.groupby(id_column):
+
+            # index = group[config.time_ids]
+            group_sorted = group.sort_values(config.time_ids, ascending=True)
+
+            _test = group_sorted.iloc[len(group) - config.example_length * 2 + 1:]
+            _valid = group_sorted.iloc[len(group) - config.example_length * 3 + 1:len(group) - config.example_length]
+            _train = group_sorted.iloc[:len(group) - config.example_length * 2]
+
+            # index = group[config.time_ids]
+            # _train = group.loc[index < config.valid_boundary]
+            # _valid = group.iloc[(len(_train) - config.encoder_length):(len(_train) + forecast_len)]
+            # _test = group.iloc[(len(_train) - config.encoder_length + forecast_len):(len(_train) + 2*forecast_len)]
+
             train.append(_train)
             valid.append(_valid)
             test.append(_test)
@@ -307,7 +319,7 @@ def encode_categoricals(train, valid, test, config):
     cat_encodings = {}
     cat_cols = list(set(v.name for v in config.features if v.feature_embed_type == DataTypes.CATEGORICAL and v.feature_type != InputTypes.ID))
     num_classes = [] #XXX Maybe we should modify config based on this value? Or send a warninig?
-                     # For TC performance reasons we might want for num_classes[i] be divisible by 8
+    # For TC performance reasons we might want for num_classes[i] be divisible by 8
 
     # Train categorical encoders
     for c in cat_cols:
@@ -318,7 +330,7 @@ def encode_categoricals(train, valid, test, config):
             test[c].loc[test[c].isin(unique)] = '<UNK>'
 
         if config.missing_cat_data_strategy == 'encode_all' or \
-                config.missing_cat_data_strategy == 'special_token':
+            config.missing_cat_data_strategy == 'special_token':
             srs = pd.concat([train[c], valid[c], test[c]]).apply(str)
             cat_encodings[c] = sklearn.preprocessing.LabelEncoder().fit(srs.values)
         elif config.missing_cat_data_strategy == 'drop':
@@ -338,8 +350,12 @@ def encode_categoricals(train, valid, test, config):
     return cat_encodings
 
 
-def preprocess(src_path, dst_path, config):
-    df = pd.read_csv(src_path, index_col=0)
+def preprocess(src_path, dst_path, config, indexed=True, length_filter=True):
+
+    if indexed:
+        df = pd.read_csv(src_path, index_col=0)
+    else:
+        df = pd.read_csv(src_path)
 
     for c in config.features:
         if c.feature_embed_type == DataTypes.DATE:
@@ -352,22 +368,23 @@ def preprocess(src_path, dst_path, config):
 
     id_col, id_encoders = flatten_ids(df, config)
     df = df.reindex(sorted(df.columns), axis=1)
-    
+
     train, valid, test = get_dataset_splits(df, config)
-   
+
     # Length filter the data (all timeseries shorter than example len will be dropped)
     #for df in [train, valid, test]:
     #    df.groupby(id_col).filter(lambda x: len(x) >= config.example_length)
-    train = pd.concat([x[1] for x in train.groupby(id_col) if len(x[1]) >= config.example_length])
-    valid = pd.concat([x[1] for x in valid.groupby(id_col) if len(x[1]) >= config.example_length])
-    test  = pd.concat([x[1] for x in test.groupby(id_col)  if len(x[1]) >= config.example_length])
+    if length_filter:
+        train = pd.concat([x[1] for x in train.groupby(id_col) if len(x[1]) >= config.example_length])
+        valid = pd.concat([x[1] for x in valid.groupby(id_col) if len(x[1]) >= config.example_length])
+        test  = pd.concat([x[1] for x in test.groupby(id_col)  if len(x[1]) >= config.example_length])
 
     train, valid, test, real_scalers, tgt_scalers = normalize_reals(train, valid, test, config, id_col)
 
     cat_encodings = encode_categoricals(train, valid, test, config)
 
     os.makedirs(dst_path, exist_ok=True)
-    
+
     train.to_csv(os.path.join(dst_path, 'train.csv'))
     valid.to_csv(os.path.join(dst_path, 'valid.csv'))
     test.to_csv(os.path.join(dst_path, 'test.csv'))
@@ -384,7 +401,7 @@ def preprocess(src_path, dst_path, config):
     pickle.dump(grouped_valid, open(os.path.join(dst_path, 'valid.bin'), 'wb'))
     pickle.dump(grouped_test,  open(os.path.join(dst_path, 'test.bin'), 'wb'))
 
-    
+
     with open(os.path.join(dst_path, 'real_scalers.bin'), 'wb') as f:
         pickle.dump(real_scalers, f)
     with open(os.path.join(dst_path, 'tgt_scalers.bin'), 'wb') as f:
@@ -393,7 +410,7 @@ def preprocess(src_path, dst_path, config):
         pickle.dump(cat_encodings, f)
     with open(os.path.join(dst_path, 'id_encoders.bin'), 'wb') as f:
         pickle.dump(id_encoders, f)
-    
+
 
 def sample_data(dataset, num_samples):
     if num_samples < 0:
@@ -407,23 +424,23 @@ def standarize_electricity(path):
     df = pd.read_csv(os.path.join(path, 'LD2011_2014.txt'), index_col=0, sep=';', decimal=',')
     df.index = pd.to_datetime(df.index)
     df.sort_index(inplace=True)
-  
+
     # Used to determine the start and end dates of a series
     output = df.resample('1h').mean().replace(0., np.nan)
-  
+
     earliest_time = output.index.min()
-  
+
     df_list = []
     for label in output:
         print('Processing {}'.format(label))
         srs = output[label]
-  
+
         start_date = min(srs.fillna(method='ffill').dropna().index)
         end_date = max(srs.fillna(method='bfill').dropna().index)
-  
+
         active_range = (srs.index >= start_date) & (srs.index <= end_date)
         srs = srs[active_range].fillna(0.)
-  
+
         tmp = pd.DataFrame({'power_usage': srs})
         date = tmp.index
         tmp['t'] = (date - earliest_time).seconds / 60 / 60 + (
@@ -436,16 +453,16 @@ def standarize_electricity(path):
         tmp['day'] = date.day
         tmp['day_of_week'] = date.dayofweek
         tmp['month'] = date.month
-  
+
         df_list.append(tmp)
-  
+
     output = pd.concat(df_list, axis=0, join='outer').reset_index(drop=True)
-  
+
     output['categorical_id'] = output['id'].copy()
     output['hours_from_start'] = output['t']
     output['categorical_day_of_week'] = output['day_of_week'].copy()
     output['categorical_hour'] = output['hour'].copy()
-  
+
     output.to_csv(os.path.join(path, 'standarized.csv'))
 
 
@@ -461,15 +478,15 @@ def standarize_traffic(path):
                 variable_type(i)
                 for i in s.replace('[', '').replace(']', '').split(delimiter)
             ]
-  
+
         return l
-  
+
     def read_single_list(filename):
         """Returns single list from a file in the PEMS-custom format."""
         with open(os.path.join(path, filename), 'r') as dat:
             l = process_list(dat.readlines()[0])
         return l
-  
+
     def read_matrix(filename):
         """Returns a matrix from a file in the PEMS-custom format."""
         array_list = []
@@ -478,22 +495,22 @@ def standarize_traffic(path):
             for i, line in enumerate(lines):
                 if (i + 1) % 50 == 0:
                     print('Completed {} of {} rows for {}'.format(i + 1, len(lines),
-                                                                filename))
+                                                                  filename))
                 array = [
                     process_list(row_split, variable_type=float, delimiter=None)
                     for row_split in process_list(
                         line, variable_type=str, delimiter=';')
                 ]
                 array_list.append(array)
-  
+
         return array_list
-  
+
     shuffle_order = np.array(read_single_list('randperm')) - 1  # index from 0
     train_dayofweek = read_single_list('PEMS_trainlabels')
     train_tensor = read_matrix('PEMS_train')
     test_dayofweek = read_single_list('PEMS_testlabels')
     test_tensor = read_matrix('PEMS_test')
-  
+
     # Inverse permutate shuffle order
     print('Shuffling')
     inverse_mapping = {
@@ -504,74 +521,74 @@ def standarize_traffic(path):
         inverse_mapping[new_location]
         for new_location, _ in enumerate(shuffle_order)
     ])
-  
+
     # Group and reoder based on permuation matrix
     print('Reodering')
     day_of_week = np.array(train_dayofweek + test_dayofweek)
     combined_tensor = np.array(train_tensor + test_tensor)
-  
+
     day_of_week = day_of_week[reverse_shuffle_order]
     combined_tensor = combined_tensor[reverse_shuffle_order]
-  
+
     # Put everything back into a dataframe
     print('Parsing as dataframe')
     labels = ['traj_{}'.format(i) for i in read_single_list('stations_list')]
-  
+
     hourly_list = []
     for day, day_matrix in enumerate(combined_tensor):
         # Hourly data
         hourly = pd.DataFrame(day_matrix.T, columns=labels)
         hourly['hour_on_day'] = [int(i / 6) for i in hourly.index
-                                ]  # sampled at 10 min intervals
+                                 ]  # sampled at 10 min intervals
         if hourly['hour_on_day'].max() > 23 or hourly['hour_on_day'].min() < 0:
             raise ValueError('Invalid hour! {}-{}'.format(
                 hourly['hour_on_day'].min(), hourly['hour_on_day'].max()))
-  
+
         hourly = hourly.groupby('hour_on_day', as_index=True).mean()[labels]
         hourly['sensor_day'] = day
         hourly['time_on_day'] = hourly.index
         hourly['day_of_week'] = day_of_week[day]
-  
+
         hourly_list.append(hourly)
-  
+
     hourly_frame = pd.concat(hourly_list, axis=0, ignore_index=True, sort=False)
-  
+
     # Flatten such that each entitiy uses one row in dataframe
     store_columns = [c for c in hourly_frame.columns if 'traj' in c]
     other_columns = [c for c in hourly_frame.columns if 'traj' not in c]
     flat_df = pd.DataFrame(columns=['values', 'prev_values', 'next_values'] +
-                           other_columns + ['id'])
-  
+                                   other_columns + ['id'])
+
     for store in store_columns:
         print('Processing {}'.format(store))
-  
+
         sliced = hourly_frame[[store] + other_columns].copy()
         sliced.columns = ['values'] + other_columns
         sliced['id'] = int(store.replace('traj_', ''))
-  
+
         # Sort by Sensor-date-time
         key = sliced['id'].apply(str) \
-                + sliced['sensor_day'].apply(lambda x: '_{:03d}'.format(x)) \
-                + sliced['time_on_day'].apply(lambda x: '_{:03d}'.format(x))
+              + sliced['sensor_day'].apply(lambda x: '_{:03d}'.format(x)) \
+              + sliced['time_on_day'].apply(lambda x: '_{:03d}'.format(x))
         sliced = sliced.set_index(key).sort_index()
-  
+
         sliced['values'] = sliced['values'].fillna(method='ffill')
         sliced['prev_values'] = sliced['values'].shift(1)
         sliced['next_values'] = sliced['values'].shift(-1)
-  
+
         flat_df = flat_df.append(sliced.dropna(), ignore_index=True, sort=False)
-  
+
     # Filter to match range used by other academic papers
     index = flat_df['sensor_day']
     flat_df = flat_df[index < 173].copy()
-  
+
     # Creating columns fo categorical inputs
     flat_df['categorical_id'] = flat_df['id'].copy()
     flat_df['hours_from_start'] = flat_df['time_on_day'] \
-        + flat_df['sensor_day']*24.
+                                  + flat_df['sensor_day']*24.
     flat_df['categorical_day_of_week'] = flat_df['day_of_week'].copy()
     flat_df['categorical_time_on_day'] = flat_df['time_on_day'].copy()
-  
+
     flat_df.to_csv(os.path.join(path, 'standarized.csv'))
 
 
